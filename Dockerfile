@@ -12,6 +12,15 @@ ENV MODEL_ID=${MODEL_ID} \
     DTYPE=fp16 \
     CHUNK_GAP_MS=0
 
+# FIX: a base do RunPod ships com torch 2.4.0, mas o `transformers` recente
+# (puxado pelo omnivoice) precisa de torch >= 2.6 (usa torch.float8_e8m0fnu).
+# Sem esse upgrade, o handler crasha com AttributeError no import. Pinamos
+# torch primeiro com wheels cu124 (mesma CUDA da base) — pip mantem esse torch
+# quando resolver as deps do omnivoice depois.
+RUN pip install --no-cache-dir --upgrade \
+      --index-url https://download.pytorch.org/whl/cu124 \
+      "torch>=2.6.0"
+
 RUN pip install --no-cache-dir runpod omnivoice soundfile numpy huggingface_hub
 
 # IMPORTANTE: baixa os pesos NA IMAGEM (build time) pra o cold start nao baixar
