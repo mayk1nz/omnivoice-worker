@@ -12,16 +12,18 @@ ENV MODEL_ID=${MODEL_ID} \
     DTYPE=fp16 \
     CHUNK_GAP_MS=0
 
-# FIX: a base do RunPod ships com torch 2.4.0, mas o `transformers` recente
-# (puxado pelo omnivoice) precisa de torch >= 2.6 (usa torch.float8_e8m0fnu).
-# Sem esse upgrade, o handler crasha com AttributeError no import. Pinamos
-# torch primeiro com wheels cu124 (mesma CUDA da base) — pip mantem esse torch
-# quando resolver as deps do omnivoice depois.
-RUN pip install --no-cache-dir --upgrade \
+# FIX #2: combina torch+torchaudio+torchvision+omnivoice numa UNICA pip install
+# pra resolver todas as deps de uma vez. O fix anterior (so torch upgrade) gerou
+# CUDA mismatch (PyTorch cu121 vs TorchAudio cu124) porque o segundo
+# `pip install omnivoice` puxou torch novamente do PyPI default. Aqui:
+#   --index-url cu124       -> primario (torch/torchaudio/torchvision com CUDA 12.4)
+#   --extra-index-url PyPI  -> fallback (omnivoice/runpod/soundfile/etc)
+# Resultado: torch e torchaudio na mesma CUDA, sem mismatch no boot.
+RUN pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cu124 \
-      "torch>=2.6.0"
-
-RUN pip install --no-cache-dir runpod omnivoice soundfile numpy huggingface_hub
+      --extra-index-url https://pypi.org/simple \
+      "torch>=2.6.0" "torchaudio>=2.6.0" "torchvision>=0.21.0" \
+      runpod omnivoice soundfile numpy huggingface_hub
 
 # IMPORTANTE: baixa os pesos NA IMAGEM (build time) pra o cold start nao baixar
 # o modelo a cada subida de worker. E isso que deixa o boot rapido.
