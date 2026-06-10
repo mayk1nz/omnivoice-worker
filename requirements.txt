@@ -1,0 +1,5 @@
+runpod
+omnivoice
+soundfile
+numpy
+huggingface_hub
