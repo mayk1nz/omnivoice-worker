@@ -12,17 +12,18 @@ ENV MODEL_ID=${MODEL_ID} \
     DTYPE=fp16 \
     CHUNK_GAP_MS=0
 
-# FIX #2: combina torch+torchaudio+torchvision+omnivoice numa UNICA pip install
-# pra resolver todas as deps de uma vez. O fix anterior (so torch upgrade) gerou
-# CUDA mismatch (PyTorch cu121 vs TorchAudio cu124) porque o segundo
-# `pip install omnivoice` puxou torch novamente do PyPI default. Aqui:
-#   --index-url cu124       -> primario (torch/torchaudio/torchvision com CUDA 12.4)
-#   --extra-index-url PyPI  -> fallback (omnivoice/runpod/soundfile/etc)
-# Resultado: torch e torchaudio na mesma CUDA, sem mismatch no boot.
+# FIX #3: pin EXATO com sufixo +cu124. As wheels do pytorch.org/whl/cu124
+# tem versao tipo "2.6.0+cu124" (PEP 440 local version). PyPI tem so "2.6.0"
+# (sem sufixo = build cu121 default). Pinando "==2.6.0+cu124" forca pip a usar
+# SO a wheel cu124, sem chance de pegar cu121 do PyPI por engano.
+#
+# Hist do bug: fix #2 usou ">=2.6.0" -> pip podia escolher uma versao mais
+# nova do PyPI (cu121) ignorando o index-url cu124. Resultado: CUDA mismatch
+# em runtime, auto-rollback do RunPod.
 RUN pip install --no-cache-dir \
       --index-url https://download.pytorch.org/whl/cu124 \
       --extra-index-url https://pypi.org/simple \
-      "torch>=2.6.0" "torchaudio>=2.6.0" "torchvision>=0.21.0" \
+      "torch==2.6.0+cu124" "torchaudio==2.6.0+cu124" "torchvision==0.21.0+cu124" \
       runpod omnivoice soundfile numpy huggingface_hub
 
 # IMPORTANTE: baixa os pesos NA IMAGEM (build time) pra o cold start nao baixar
