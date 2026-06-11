@@ -3,7 +3,10 @@
 # torchaudio com versao errada (cu121 no lugar de cu124), causando CUDA
 # mismatch em runtime. A imagem oficial pytorch/pytorch ja vem com torch +
 # torchaudio + cuDNN todos cu124, matching garantido. Eliminamos o pip dance.
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+# FIX #6: base com CUDA 12.8+ pra suportar GPUs Blackwell (sm_120) que RunPod
+# adicionou no tier 24GB (PRO 6000 MIG). PyTorch 2.6 com CUDA 12.4 so suportava
+# ate sm_90 (Hopper). Blackwell crashava com "no kernel image available".
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 
 WORKDIR /app
 
