@@ -2,16 +2,21 @@
 
 Modelo Apache 2.0, 646 idiomas (PT + BG + ...), RTF ~0.025 (40x tempo real).
 Recebe um shard (bloco de chunks de texto) + amostra de voz, devolve o audio
-do shard concatenado + duracoes por chunk + metricas.
+do shard concatenado (codificado em mp3 64k) + duracoes por chunk + metricas.
 
 A amostra de referencia e escrita uma vez no disco do worker (cache por hash)
 e reusada em cada chunk pra evitar IO repetida.
+
+SAIDA: mp3 64kbps (em vez de WAV PCM) - corta tamanho do output ~10x.
+Isso permite N_SHARDS muito menor (menos cold-start tax) sem estourar
+o limite de output do RunPod serverless (~10MB por response).
 """
 
 import base64
 import hashlib
 import io
 import os
+import subprocess
 import tempfile
 import time
 
@@ -25,6 +30,7 @@ MODEL_ID = os.environ.get("MODEL_ID", "k2-fsa/OmniVoice")
 DTYPE = torch.float16 if os.environ.get("DTYPE", "fp16") == "fp16" else torch.bfloat16
 GAP_MS = int(os.environ.get("CHUNK_GAP_MS", "0"))
 SR = 24000  # OmniVoice saida fixa em 24kHz
+MP3_BITRATE = os.environ.get("MP3_BITRATE", "64k")  # bitrate do mp3 retornado
 
 print(f"[boot] carregando {MODEL_ID} (dtype={DTYPE}) ...", flush=True)
 _t0 = time.time()
@@ -68,12 +74,26 @@ def handler(job):
     gen_seconds = round(time.time() - t0, 3)
 
     audio = np.concatenate(pieces) if pieces else np.zeros(0, dtype=np.float32)
-    buf = io.BytesIO()
-    sf.write(buf, audio, SR, format="WAV", subtype="PCM_16")
     audio_seconds = round(len(audio) / SR, 3)
 
+    # Escreve WAV PCM em memoria e converte pra mp3 64k via ffmpeg subprocess.
+    # mp3 fica ~10x menor que PCM, permitindo N_SHARDS menor sem estourar
+    # o limite de output do RunPod (~10MB por response).
+    wav_buf = io.BytesIO()
+    sf.write(wav_buf, audio, SR, format="WAV", subtype="PCM_16")
+    wav_buf.seek(0)
+    proc = subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-y",
+         "-i", "pipe:0",
+         "-c:a", "libmp3lame", "-b:a", MP3_BITRATE,
+         "-f", "mp3", "pipe:1"],
+        input=wav_buf.read(), capture_output=True, check=True,
+    )
+    mp3_bytes = proc.stdout
+
     return {
-        "audio_b64": base64.b64encode(buf.getvalue()).decode(),
+        "audio_b64": base64.b64encode(mp3_bytes).decode(),
+        "audio_format": "mp3",
         "sample_rate": SR,
         "n_chunks": len(texts),
         "chunk_durations": durations,
